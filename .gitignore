@@ -1,0 +1,15 @@
+# Generated share archives
+*.zip
+
+# Local dependencies and generated files
+node_modules/
+__pycache__/
+*.pyc
+
+# Local credentials and machine settings
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+desktop.ini
