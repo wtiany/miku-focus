@@ -6,6 +6,7 @@
 <title>初音未来专注 · Miku Focus</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%2339c5bb'/%3E%3Ctext x='50' y='70' font-size='56' text-anchor='middle' fill='%230b1020'%3E%E2%99%AA%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css?v=timer-bold-20261011-1">
+<link rel="stylesheet" href="room.css?v=room-20261018-1">
 </head>
 <body data-state="idle">
 
@@ -116,6 +117,34 @@
   <button class="todo-tab" id="todoTab" title="待办事项"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><i class="todo-badge" id="todoBadge" hidden></i></button>
 </div>
 
+<!-- 多人学习房间：单人模式仍可直接双击 HTML 使用 -->
+<button class="room-launch" id="roomLaunch" type="button" aria-expanded="false" aria-controls="roomPanel">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+  <span id="roomLaunchLabel">一起学习</span><i class="room-dot" id="roomDot" hidden></i>
+</button>
+<section class="room-panel" id="roomPanel" aria-labelledby="roomTitle" hidden>
+  <div class="room-heading"><div><h2 id="roomTitle">一起学习</h2><p>同一首歌，各自的专注节奏。</p></div><button class="pbtn" id="roomClose" type="button" aria-label="收起学习房间">×</button></div>
+  <p class="room-message" id="roomMessage" role="status" aria-live="polite">创建房间，邀请朋友听你的本地音乐。</p>
+  <div id="roomLobby">
+    <label class="room-field">你的昵称<input id="roomName" maxlength="24" placeholder="怎么称呼你" autocomplete="nickname"></label>
+    <button class="btn btn-primary room-wide" id="roomCreate" type="button">创建学习房间</button>
+    <div class="room-divider"><span>或加入朋友的房间</span></div>
+    <form id="roomJoinForm" class="room-join"><input id="roomCode" maxlength="12" placeholder="输入房间码" aria-label="房间码" autocomplete="off" spellcheck="false"><button class="btn btn-secondary" id="roomJoin" type="submit">加入</button></form>
+    <p class="room-footnote">最多 6 人 · 仅分享播放器声音 · 不开启麦克风</p>
+  </div>
+  <div id="roomActive" hidden>
+    <div class="room-invite"><div><span>房间码</span><b id="roomActiveCode"></b></div><button class="btn btn-secondary" id="roomCopy" type="button">复制邀请</button></div>
+    <p class="room-role" id="roomRole"></p>
+    <div class="room-song"><span class="room-eyebrow">正在一起听</span><strong id="roomSong">等待音乐</strong><span id="roomPlayback">尚未播放</span></div>
+    <button class="btn btn-primary room-wide" id="roomListen" type="button" hidden>暂停收听</button>
+    <label class="room-volume" for="roomVolume"><span>我的音量 <b id="roomVolumeValue">80%</b></span><input id="roomVolume" type="range" min="0" max="100" value="80"></label>
+    <ul class="room-members" id="roomMembers" aria-label="房间成员"></ul>
+    <button class="btn btn-secondary room-wide" id="roomLeave" type="button">离开房间</button>
+    <p class="room-footnote">学习计时各自独立，房主离开后房间结束。</p>
+  </div>
+</section>
+<audio id="roomAudio" autoplay playsinline></audio>
+
 <!-- 结束总结弹窗 -->
 <div class="modal-mask" id="summaryModal" hidden>
   <div class="modal">
@@ -132,5 +161,6 @@
 
 <audio id="audio" preload="auto"></audio>
 <script src="app.js?v=no-sound-effects-20261011-1"></script>
+<script src="room.js?v=room-20261018-1"></script>
 </body>
 </html>

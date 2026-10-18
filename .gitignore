@@ -13,3 +13,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Local test artifacts
+test-results/
+playwright-report/

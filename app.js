@@ -210,6 +210,7 @@ function setState(s) {
   updateButtons();
   render();
   saveRunState(true);
+  window.dispatchEvent(new Event("miku-study-change"));
 }
 
 /* ---------- 运行中计时的持久化（刷新/意外关闭后接续，见 §3.1） ---------- */
@@ -471,6 +472,7 @@ function endSession() {
   $("sumBreaks").textContent = breakCount;
   $("sumToday").textContent = fmtClock(todayStats().ms);
   $("summaryModal").hidden = false;
+  window.dispatchEvent(new Event("miku-study-change"));
 }
 
 function resetToIdle() {
@@ -601,6 +603,7 @@ function renderPlaylist() {
 }
 
 function playIndex(i) {
+  if (window.mikuRoom?.isGuest) return;
   if (!tracks[i]) return;
   cur = i;
   audio.src = tracks[i].url;
@@ -755,7 +758,7 @@ $("fileInput").addEventListener("change", (e) => {
 btnPlay.addEventListener("click", () => {
   if (cur === -1) { if (tracks.length) playIndex(0); return; }
   if (audio.paused) {
-    if (musicHeldByStudy) { musicHeldByStudy = false; audio.volume = userVolume; }   // 手动接管时立即恢复音量
+    if (musicHeldByStudy) { musicHeldByStudy = false; setPlaybackVolume(userVolume); }   // 手动接管时立即恢复音量
     audio.play();
   } else {
     musicHeldByStudy = false;
@@ -827,6 +830,12 @@ let lastVol = 80; // 记住最近一次非零音量，取消静音时恢复
 let userVolume = 0.8;         // 用户设定的目标音量（0–1）
 let musicHeldByStudy = false; // 音乐因学习暂停/结束而被渐变停止中
 let musicFadeTimer = 0;
+function setPlaybackVolume(value) {
+  if (!window.mikuRoom?.setLocalVolume(value)) audio.volume = value;
+}
+function getPlaybackVolume() {
+  return window.mikuRoom?.getLocalVolume() ?? audio.volume;
+}
 function applyVolume(v) {
   v = Math.max(0, Math.min(100, Math.round(v)));
   userVolume = v / 100;
@@ -834,10 +843,11 @@ function applyVolume(v) {
   volBar.value = v;
   localStorage.setItem("mikuFocusVol", v);
   if (v > 0) lastVol = v;
+  window.dispatchEvent(new Event("miku-volume-change"));
   if (musicHeldByStudy) return;   // 学习渐变接管期间只记目标值，不直接动音频
   cancelMusicFade();
   audio.muted = false;
-  audio.volume = userVolume;
+  setPlaybackVolume(userVolume);
 }
 
 /* 音乐渐变：学习暂停/结束时缓降停止，恢复时淡入（避免生硬切断） */
@@ -845,31 +855,33 @@ function cancelMusicFade() { clearInterval(musicFadeTimer); musicFadeTimer = 0; 
 
 function fadeMusicTo(target, ms, onDone) {
   cancelMusicFade();
-  const from = audio.volume;
+  const from = getPlaybackVolume();
   const t0 = Date.now();
   musicFadeTimer = setInterval(() => {
     const k = Math.min(1, (Date.now() - t0) / ms);
-    audio.volume = from + (target - from) * k;
+    setPlaybackVolume(from + (target - from) * k);
     if (k >= 1) { cancelMusicFade(); if (onDone) onDone(); }
   }, 50);
 }
 
 function pauseMusicForStudy() {
+  if (window.mikuRoom?.active) return;            // 房间音乐不随个人计时暂停
   if (audio.paused && !musicHeldByStudy) return;   // 本来就没在放
   musicHeldByStudy = true;
   fadeMusicTo(0, 2500, () => audio.pause());
 }
 
 function resumeMusicForStudy() {
+  if (window.mikuRoom?.active) return;
   if (!musicHeldByStudy) return;                   // 不是被学习停下的，不自动播放
   musicHeldByStudy = false;
   const p = audio.play();
   const done = () => fadeMusicTo(userVolume, 2500);
-  if (p) p.then(done).catch(() => { audio.volume = userVolume; }); else done();
+  if (p) p.then(done).catch(() => { setPlaybackVolume(userVolume); }); else done();
 }
 volBar.addEventListener("input", () => applyVolume(Number(volBar.value)));
 volIcon.addEventListener("click", () => {
-  applyVolume(audio.muted || audio.volume == 0 ? lastVol : 0);
+  applyVolume(audio.muted || getPlaybackVolume() == 0 ? lastVol : 0);
 });
 applyVolume(Number(localStorage.getItem("mikuFocusVol") ?? 80));
 
@@ -1067,3 +1079,17 @@ setState(state);
 updatePlayBtn();
 renderPlaylist();
 initLibrary();
+
+// Minimal bridge for the optional room layer; personal data stays in this page.
+window.mikuFocus = {
+  getStudy: () => ({ status: state, elapsedMs: state === IDLE ? 0 : studyElapsed() }),
+  getTrack: () => ({ name: tracks[cur]?.name || "房主还没有播放音乐", playing: !audio.paused && Boolean(tracks[cur]) }),
+  getVolume: () => userVolume,
+  setVolume: (value) => applyVolume(value * 100),
+};
+window.addEventListener("miku-room-change", () => {
+  // A fade started before entering a room must never pause everybody's music.
+  cancelMusicFade();
+  musicHeldByStudy = false;
+  setPlaybackVolume(userVolume);
+});
