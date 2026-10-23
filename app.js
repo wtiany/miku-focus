@@ -12,7 +12,6 @@ const WALLPAPERS = [
   { src: "assets/images/miku_holiday.jpg" },
   { src: "assets/videos/miku_sea_color.mp4" },
   { src: "assets/videos/miku_moon_night.mp4" },
-  { src: "assets/videos/miku_project_g.mp4" },
 ];
 
 const layerA = $("layerA"), layerB = $("layerB");
@@ -89,12 +88,15 @@ function scheduleNext() {
 
 function probeVideoMeta(item) {
   const v = document.createElement("video");
-  v.preload = "auto";
+  v.preload = "metadata";
   v.muted = true;
   v.src = item.src;
   v.onloadedmetadata = () => {
     item.dur = v.duration;
     if (carouselList[carouselIdx] === item) scheduleNext();
+    v.onloadedmetadata = null;
+    v.removeAttribute("src");
+    v.load();
   };
 }
 
@@ -207,6 +209,7 @@ function setState(s) {
   }
   state = s;
   document.body.dataset.state = s;
+  $("timerStatus").textContent = { idle: "准备开始", study: "专注中", paused: "已暂停", break: "休息一下" }[s];
   updateButtons();
   render();
   saveRunState(true);
@@ -564,6 +567,7 @@ function fmtDur(sec) {
 }
 
 function renderPlaylist() {
+  if (window.mikuRoom?.active) { window.mikuRoom.renderPlayer(); return; }
   const box = $("playlist");
   box.innerHTML = "";
   if (!tracks.length) {
@@ -584,11 +588,11 @@ function renderPlaylist() {
     const name = document.createElement("span");
     name.className = "pl-name";
     name.textContent = t.name;
-    name.title = t.name;
+    name.title = t.artist ? `${t.name} · ${t.artist}` : t.name;
 
     const dur = document.createElement("span");
     dur.className = "pl-dur";
-    dur.textContent = t.dur ? fmtDur(t.dur) : "--:--";
+    dur.textContent = (t.source === "netease" ? "网易云 · " : "") + (t.dur ? fmtDur(t.dur) : "--:--");
 
     const del = document.createElement("button");
     del.className = "pl-del";
@@ -603,8 +607,10 @@ function renderPlaylist() {
 }
 
 function playIndex(i) {
-  if (window.mikuRoom?.isGuest) return;
+  if (window.mikuRoom?.active) return;
   if (!tracks[i]) return;
+  if (tracks[i].requiresLogin && !window.mikuNetease?.loggedIn) { window.mikuNetease?.open(); toast("请先扫码登录网易云，再播放这首歌。"); return; }
+  if (tracks[i].source === "netease" && location.protocol === "file:") { toast("网易云音乐需要通过学习房间服务打开页面。"); return; }
   cur = i;
   audio.src = tracks[i].url;
   const p = audio.play();
@@ -615,10 +621,12 @@ function playIndex(i) {
 }
 
 function updatePlayBtn() {
+  if (window.mikuRoom?.active) { window.mikuRoom.renderPlayer(); return; }
   btnPlay.innerHTML = audio.paused ? ICON_PLAY : ICON_PAUSE;
 }
 
 function nextTrack(manual = false) {
+  if (window.mikuRoom?.active) return;
   if (!tracks.length) return;
   const mode = PLAY_MODES[playModeIdx].id;
   if (manual) { playIndex((cur + 1) % tracks.length); return; }   // 手动切歌永远按顺序，不受模式影响
@@ -640,8 +648,9 @@ function prevTrack() {
 
 function removeTrack(i) {
   dbDelete(tracks[i]);
-  URL.revokeObjectURL(tracks[i].url);
+  if (tracks[i].url.startsWith("blob:")) URL.revokeObjectURL(tracks[i].url);
   tracks.splice(i, 1);
+  saveOnlineLibrary();
   if (i === cur) {
     audio.pause();
     audio.src = "";
@@ -691,13 +700,16 @@ async function initLibrary() {
     });
     if (saved.length) {
       renderPlaylist();
-      npName.textContent = "歌单已恢复，点播放按钮开始听 ♪";
-      toast(`已恢复上次导入的 ${saved.length} 首音乐 ♪`);
+      if (!window.mikuRoom?.active) {
+        npName.textContent = "歌单已恢复，点播放按钮开始听 ♪";
+        toast(`已恢复上次导入的 ${saved.length} 首音乐 ♪`);
+      }
     }
   } catch { db = null; }
 }
 
 function dbSave(track) {
+  if (track.source === "netease") { saveOnlineLibrary(); return; }
   if (!db) return;
   try {
     const r = db.transaction("tracks", "readwrite").objectStore("tracks")
@@ -707,6 +719,7 @@ function dbSave(track) {
 }
 
 function dbUpdateDur(track) {
+  if (track.source === "netease") return;
   if (!db || track.dbId == null) return;
   try {
     db.transaction("tracks", "readwrite").objectStore("tracks")
@@ -733,7 +746,37 @@ function probeDuration(track) {
   };
 }
 
-$("btnImport").addEventListener("click", () => $("fileInput").click());
+$("btnImport").addEventListener("click", () => window.mikuNetease ? window.mikuNetease.open() : $("fileInput").click());
+
+function saveOnlineLibrary() {
+  try { localStorage.setItem("mikuFocusNetease_v1", JSON.stringify(tracks.filter((t) => t.source === "netease" && !t.requiresLogin).map((t) => ({ id: t.neteaseId, name: t.name, artist: t.artist, duration: t.dur })))); } catch {}
+}
+function addOnlineTracks(items) {
+  const existing = new Set(tracks.map((t) => t.neteaseId));
+  const candidates = items.filter((t) => t.available && !existing.has(t.id));
+  const selected = candidates.slice(0, Math.max(0, 200 - tracks.filter((t) => t.source === "netease").length));
+  for (const t of selected) tracks.push({ source: "netease", neteaseId: t.id, requiresLogin: Boolean(t.requiresLogin), name: t.name, artist: t.artist, dur: t.duration, url: `/api/netease/audio/${t.id}` });
+  saveOnlineLibrary(); renderPlaylist();
+  return { added: selected.length, capacitySkipped: candidates.length - selected.length };
+}
+function clearAccountTracks() {
+  const previous = tracks[cur];
+  for (let i = tracks.length - 1; i >= 0; i--) if (tracks[i].requiresLogin) tracks.splice(i, 1);
+  cur = previous ? tracks.indexOf(previous) : -1;
+  if (previous?.requiresLogin && !window.mikuRoom?.active) {
+    audio.pause(); audio.removeAttribute("src"); audio.load();
+    npName.textContent = "导入喜欢的音乐"; seekBar.disabled = true; seekBar.value = 0;
+    timeCur.textContent = timeDur.textContent = "0:00";
+  }
+  saveOnlineLibrary(); renderPlaylist();
+}
+function restoreOnlineLibrary() {
+  if (location.protocol === "file:") return;
+  try {
+    const saved = JSON.parse(localStorage.getItem("mikuFocusNetease_v1") || "[]");
+    if (Array.isArray(saved)) addOnlineTracks(saved.slice(0, 200).filter((t) => /^[1-9]\d{0,15}$/.test(String(t.id))).map((t) => ({ ...t, id: String(t.id), name: String(t.name || "网易云歌曲"), duration: Number(t.duration) || 0, available: true })));
+  } catch {}
+}
 
 $("fileInput").addEventListener("change", (e) => {
   const files = [...e.target.files].filter(
@@ -741,6 +784,7 @@ $("fileInput").addEventListener("change", (e) => {
   );
   e.target.value = "";
   if (!files.length) { toast("没有识别到音频文件哦"); return; }
+  if (window.mikuRoom?.active) { window.mikuRoom.importFiles(files); return; }
 
   const firstNew = tracks.length;
   files.forEach((f) => {
@@ -756,6 +800,7 @@ $("fileInput").addEventListener("change", (e) => {
 });
 
 btnPlay.addEventListener("click", () => {
+  if (window.mikuRoom?.active) { window.mikuRoom.control("toggle"); return; }
   if (cur === -1) { if (tracks.length) playIndex(0); return; }
   if (audio.paused) {
     if (musicHeldByStudy) { musicHeldByStudy = false; setPlaybackVolume(userVolume); }   // 手动接管时立即恢复音量
@@ -766,8 +811,8 @@ btnPlay.addEventListener("click", () => {
     audio.pause();
   }
 });
-$("btnNext").addEventListener("click", () => nextTrack(true));
-$("btnPrev").addEventListener("click", prevTrack);
+$("btnNext").addEventListener("click", () => window.mikuRoom?.active ? window.mikuRoom.control("next") : nextTrack(true));
+$("btnPrev").addEventListener("click", () => window.mikuRoom?.active ? window.mikuRoom.control("prev") : prevTrack());
 $("btnList").addEventListener("click", () => $("playlist").classList.toggle("open"));
 
 /* ---------- 播放模式（顺序循环 / 单曲循环 / 随机播放） ---------- */
@@ -796,6 +841,7 @@ function applyPlayMode() {
 }
 
 $("btnMode").addEventListener("click", () => {
+  if (window.mikuRoom?.active) return;
   playModeIdx = (playModeIdx + 1) % PLAY_MODES.length;
   localStorage.setItem("mikuFocusPlayMode", PLAY_MODES[playModeIdx].id);
   applyPlayMode();
@@ -806,8 +852,10 @@ applyPlayMode();
 audio.addEventListener("play", () => { updatePlayBtn(); renderPlaylist(); });
 audio.addEventListener("pause", () => { updatePlayBtn(); renderPlaylist(); });
 audio.addEventListener("ended", () => nextTrack(false));
-audio.addEventListener("loadedmetadata", () => { timeDur.textContent = fmtDur(audio.duration); });
+audio.addEventListener("error", () => { if (!window.mikuRoom?.active && tracks[cur]?.source === "netease") { toast("这首网易云歌曲暂时无法播放，请检查登录权限或稍后重试。"); window.mikuNetease?.refreshAuth().catch(() => {}); } });
+audio.addEventListener("loadedmetadata", () => { if (!window.mikuRoom?.active) timeDur.textContent = fmtDur(audio.duration); });
 audio.addEventListener("timeupdate", () => {
+  if (window.mikuRoom?.active) return;
   timeCur.textContent = fmtDur(audio.currentTime);
   if (isFinite(audio.duration) && audio.duration > 0 && !seekDragging) {
     seekBar.value = Math.round((audio.currentTime / audio.duration) * 1000);
@@ -817,6 +865,7 @@ audio.addEventListener("timeupdate", () => {
 let seekDragging = false;
 seekBar.addEventListener("input", () => { seekDragging = true; });
 seekBar.addEventListener("change", () => {
+  if (window.mikuRoom?.active) { window.mikuRoom.control("seek", Number(seekBar.value) / 1000); seekDragging = false; return; }
   if (isFinite(audio.duration)) audio.currentTime = (seekBar.value / 1000) * audio.duration;
   seekDragging = false;
 });
@@ -1078,7 +1127,7 @@ restoreRunState();          // 恢复上次未结束的计时段（若有）
 setState(state);
 updatePlayBtn();
 renderPlaylist();
-initLibrary();
+initLibrary().finally(restoreOnlineLibrary);
 
 // Minimal bridge for the optional room layer; personal data stays in this page.
 window.mikuFocus = {
@@ -1086,6 +1135,9 @@ window.mikuFocus = {
   getTrack: () => ({ name: tracks[cur]?.name || "房主还没有播放音乐", playing: !audio.paused && Boolean(tracks[cur]) }),
   getVolume: () => userVolume,
   setVolume: (value) => applyVolume(value * 100),
+  addOnlineTracks,
+  clearAccountTracks,
+  restorePlayer: () => { npName.textContent = tracks[cur]?.name || "导入喜欢的音乐"; updatePlayBtn(); renderPlaylist(); applyPlayMode(); seekBar.disabled = cur < 0; },
 };
 window.addEventListener("miku-room-change", () => {
   // A fade started before entering a room must never pause everybody's music.

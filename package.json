@@ -3,12 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "description": "Miku Focus 的本地音乐共享学习房间",
-  "engines": { "node": ">=22.9.0" },
+  "engines": {
+    "node": ">=22.9.0"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env server.cjs",
-    "test": "node --test tests/server.test.cjs",
-    "test:browser": "node tests/browser.cjs"
+    "share": "node --env-file-if-exists=.env tools/share.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "test:browser": "node tests/browser.cjs",
+    "test:netease": "node tests/netease-browser.cjs",
+    "test:auth-browser": "node tests/netease-auth-browser.cjs"
   },
-  "dependencies": { "ws": "^8.18.0" },
-  "devDependencies": { "playwright": "^1.56.0" }
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
 }

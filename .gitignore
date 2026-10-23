@@ -17,3 +17,7 @@ desktop.ini
 # Local test artifacts
 test-results/
 playwright-report/
+
+# Downloaded tunnel client and temporary share address
+.tools/
+.share-info.json

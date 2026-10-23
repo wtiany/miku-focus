@@ -1,0 +1,2 @@
+# Windows CMD needs native line endings for reliable batch parsing.
+*.cmd text eol=crlf

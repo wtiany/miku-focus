@@ -7,7 +7,10 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-if not exist "node_modules\ws\package.json" (
+set "MIKU_NEEDS_INSTALL="
+if not exist "node_modules\ws\package.json" set "MIKU_NEEDS_INSTALL=1"
+if not exist "node_modules\qrcode\package.json" set "MIKU_NEEDS_INSTALL=1"
+if defined MIKU_NEEDS_INSTALL (
   call npm ci --omit=dev
   if errorlevel 1 (
     pause

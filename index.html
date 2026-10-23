@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>初音未来专注 · Miku Focus</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%2339c5bb'/%3E%3Ctext x='50' y='70' font-size='56' text-anchor='middle' fill='%230b1020'%3E%E2%99%AA%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=timer-bold-20261011-1">
-<link rel="stylesheet" href="room.css?v=room-20261018-1">
+<link rel="stylesheet" href="style.css?v=netease-auth-20261023-6">
+<link rel="stylesheet" href="room.css?v=shared-room-20261023-2">
 </head>
 <body data-state="idle">
 
@@ -14,15 +14,20 @@
 <div class="stage" aria-hidden="false" id="carousel" title="点击切换图片">
   <div class="stage-layer" id="layerA">
     <img class="stage-media" id="imgA" alt="初音未来">
-    <video class="stage-media" id="vidA" muted loop playsinline preload="auto"></video>
+    <video class="stage-media" id="vidA" muted loop playsinline preload="metadata"></video>
   </div>
   <div class="stage-layer" id="layerB" aria-hidden="true">
     <img class="stage-media" id="imgB" alt="" aria-hidden="true">
-    <video class="stage-media" id="vidB" muted loop playsinline preload="auto"></video>
+    <video class="stage-media" id="vidB" muted loop playsinline preload="metadata"></video>
   </div>
   <div class="stage-shade"></div>
 </div>
 <div class="notes" id="notes" aria-hidden="true"></div>
+
+<div class="brand" aria-label="初音未来专注 Miku Focus">
+  <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 22V10l9 9 9-9v12M7 6v1M25 6v1"/></svg></div>
+  <div><div class="brand-name">MIKU <span>FOCUS</span></div><div class="brand-caption">初音未来 · 专注陪伴</div></div>
+</div>
 
 <!-- 浏览器全屏开关：沉浸模式下也保留退出入口 -->
 <button class="fullscreen-toggle" id="btnFullscreen" type="button" aria-label="进入全屏" aria-pressed="false" title="进入全屏">
@@ -32,6 +37,7 @@
 
 <!-- 计时模块（右上悬浮小卡） -->
 <section class="timer-card" id="timerCard">
+  <div class="timer-heading"><span>专注时光</span><span class="timer-status" id="timerStatus" role="status">准备开始</span></div>
   <div class="timer-face">
     <button class="timer-toggle" id="timerToggle" type="button" aria-controls="timerDetails" aria-expanded="true" aria-label="学习时长" disabled><span class="timer" id="timer">00:00</span></button>
     <div class="timer-bar"><i id="timerBarFill"></i></div>
@@ -79,24 +85,25 @@
 <section class="player" id="player">
   <ul class="playlist" id="playlist"></ul>
   <div class="player-bar">
-    <button class="pbtn" id="btnPrev" title="上一首"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="5" x2="5" y2="19"/></svg></button>
-    <button class="pbtn pbtn-main" id="btnPlay" title="播放 / 暂停"></button>
-    <button class="pbtn" id="btnNext" title="下一首"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
+    <div class="player-art" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13M9 8l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2.5"/><ellipse cx="17" cy="16" rx="3" ry="2.5"/></svg></div>
     <div class="now-playing">
       <div class="np-name" id="npName">导入喜欢的音乐</div>
       <div class="np-progress">
         <span class="np-time" id="timeCur">0:00</span>
-        <input type="range" id="seekBar" min="0" max="1000" value="0" disabled>
+        <input type="range" id="seekBar" min="0" max="1000" value="0" disabled aria-label="音乐播放进度">
         <span class="np-time" id="timeDur">0:00</span>
       </div>
     </div>
+    <button class="pbtn" id="btnPrev" title="上一首"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="5" x2="5" y2="19"/></svg></button>
+    <button class="pbtn pbtn-main" id="btnPlay" title="播放 / 暂停"></button>
+    <button class="pbtn" id="btnNext" title="下一首"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
     <div class="volume">
       <span class="vol-icon" id="volIcon"></span>
-      <input type="range" id="volBar" min="0" max="100" value="80">
+      <input type="range" id="volBar" min="0" max="100" value="80" aria-label="音乐音量">
     </div>
     <button class="pbtn" id="btnMode" title="播放模式"></button>
     <button class="pbtn" id="btnList" title="播放列表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
-    <button class="pbtn" id="btnImport" title="导入音乐"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    <button class="pbtn" id="btnImport" title="导入网易云歌单或本地音乐"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
     <input type="file" id="fileInput" multiple accept="audio/*" hidden>
   </div>
 </section>
@@ -124,26 +131,47 @@
 </button>
 <section class="room-panel" id="roomPanel" aria-labelledby="roomTitle" hidden>
   <div class="room-heading"><div><h2 id="roomTitle">一起学习</h2><p>同一首歌，各自的专注节奏。</p></div><button class="pbtn" id="roomClose" type="button" aria-label="收起学习房间">×</button></div>
-  <p class="room-message" id="roomMessage" role="status" aria-live="polite">创建房间，邀请朋友听你的本地音乐。</p>
+  <p class="room-message" id="roomMessage" role="status" aria-live="polite">创建房间，发个链接，一起专注。</p>
   <div id="roomLobby">
     <label class="room-field">你的昵称<input id="roomName" maxlength="24" placeholder="怎么称呼你" autocomplete="nickname"></label>
     <button class="btn btn-primary room-wide" id="roomCreate" type="button">创建学习房间</button>
     <div class="room-divider"><span>或加入朋友的房间</span></div>
     <form id="roomJoinForm" class="room-join"><input id="roomCode" maxlength="12" placeholder="输入房间码" aria-label="房间码" autocomplete="off" spellcheck="false"><button class="btn btn-secondary" id="roomJoin" type="submit">加入</button></form>
-    <p class="room-footnote">最多 6 人 · 仅分享播放器声音 · 不开启麦克风</p>
+    <p class="room-footnote" id="roomAccessHint">远程邀请：双击「一键分享学习房间.cmd」生成 HTTPS 链接。朋友无需安装。</p>
   </div>
   <div id="roomActive" hidden>
     <div class="room-invite"><div><span>房间码</span><b id="roomActiveCode"></b></div><button class="btn btn-secondary" id="roomCopy" type="button">复制邀请</button></div>
     <p class="room-role" id="roomRole"></p>
     <div class="room-song"><span class="room-eyebrow">正在一起听</span><strong id="roomSong">等待音乐</strong><span id="roomPlayback">尚未播放</span></div>
     <button class="btn btn-primary room-wide" id="roomListen" type="button" hidden>暂停收听</button>
+    <button class="btn btn-secondary room-wide room-add-music" id="roomAddMusic" type="button">＋ 添加到共享歌单</button>
+    <button class="btn btn-secondary room-wide room-add-music" id="roomImportNetease" type="button">导入网易云歌单</button>
+    <p class="room-footnote">每位成员都能添加、切歌和暂停。本地音乐临时上传，单曲最多 50 MB；网易云音乐使用平台公开外链。</p>
     <label class="room-volume" for="roomVolume"><span>我的音量 <b id="roomVolumeValue">80%</b></span><input id="roomVolume" type="range" min="0" max="100" value="80"></label>
     <ul class="room-members" id="roomMembers" aria-label="房间成员"></ul>
     <button class="btn btn-secondary room-wide" id="roomLeave" type="button">离开房间</button>
-    <p class="room-footnote">学习计时各自独立，房主离开后房间结束。</p>
+    <button class="room-end" id="roomEnd" type="button" hidden>结束房间并清空歌单</button>
+    <p class="room-footnote">刷新自动恢复 · 房主离开自动转移 · 全员离线保留 30 分钟</p>
   </div>
 </section>
 <audio id="roomAudio" autoplay playsinline></audio>
+
+<div class="modal-mask" id="neteaseModal" hidden>
+  <section class="modal netease-dialog" role="dialog" aria-modal="true" aria-labelledby="neteaseTitle">
+    <div class="netease-heading"><div><span class="netease-eyebrow">MUSIC LIBRARY</span><h2 id="neteaseTitle">导入喜欢的音乐</h2></div><button class="pbtn" id="neteaseClose" type="button" aria-label="关闭音乐导入">×</button></div>
+    <p class="netease-intro">粘贴网易云歌单，检查后导入可播放的歌曲。</p>
+    <div class="netease-account"><div><strong id="neteaseAccount">未登录网易云</strong><span id="neteaseAccountHint">可直接导入公开音源，也可以扫码使用自己的账号权限。</span></div><button class="btn btn-secondary" id="neteaseLogin" type="button">扫码登录</button><button class="btn btn-secondary" id="neteaseLogout" type="button" hidden>退出登录</button></div>
+    <div class="netease-qr" id="neteaseQrPanel" hidden><div class="netease-qr-image"><img id="neteaseQrImage" width="216" height="216" alt="网易云音乐登录二维码" hidden></div><div><strong>用网易云音乐 App 扫码</strong><p id="neteaseQrStatus" role="status" aria-live="polite">正在生成二维码…</p><p class="netease-note">打开手机 App 的扫一扫，并在手机上确认登录。二维码仅供你本人使用。</p><a id="neteaseOfficial" class="netease-official" href="https://music.163.com/" target="_blank" rel="noopener noreferrer" hidden>去网易云官网登录 / 完成安全验证 ↗</a><div class="netease-qr-actions"><button class="btn btn-secondary" id="neteaseQrRefresh" type="button">刷新二维码</button><button class="pbtn" id="neteaseQrCancel" type="button">取消</button></div></div></div>
+    <form id="neteaseForm" class="netease-form">
+      <label for="neteaseLink">歌单链接或 ID</label>
+      <div class="netease-input-row"><input id="neteaseLink" type="text" maxlength="1000" placeholder="https://music.163.com/playlist?id=…" autocomplete="off" spellcheck="false" required><button class="btn btn-primary" id="neteaseCheck" type="submit">读取歌单</button></div>
+    </form>
+    <p class="netease-status" id="neteaseStatus" role="status" aria-live="polite">未登录时检查公开音源；登录后按你的账号权限检查。</p>
+    <div id="neteaseResults" hidden><div class="netease-summary"><h3 id="neteasePlaylistName"></h3><p id="neteaseCounts"></p></div><ul class="netease-tracks" id="neteaseTracks" aria-label="网易云歌单歌曲"></ul></div>
+    <div class="netease-actions"><button class="btn btn-secondary" id="neteaseLocal" type="button">选择本地文件</button><button class="btn btn-primary" id="neteaseImport" type="button" disabled>导入可播放歌曲</button></div>
+    <p class="netease-note">每次最多检查 200 首，试听片段不会作为完整歌曲导入。房间成员各自登录获取权限；导入房间后，歌名会对成员可见。登录凭证仅存服务端内存，退出或重启服务即清除。</p>
+  </section>
+</div>
 
 <!-- 结束总结弹窗 -->
 <div class="modal-mask" id="summaryModal" hidden>
@@ -160,7 +188,8 @@
 <div class="toast" id="toast" hidden></div>
 
 <audio id="audio" preload="auto"></audio>
-<script src="app.js?v=no-sound-effects-20261011-1"></script>
-<script src="room.js?v=room-20261018-1"></script>
+<script src="app.js?v=wallpaper-20261023-7"></script>
+<script src="room.js?v=netease-auth-20261023-6"></script>
+<script src="netease.js?v=netease-auth-20261023-6"></script>
 </body>
 </html>
