@@ -8,23 +8,35 @@ const path = require("node:path");
 const { randomBytes, randomUUID } = require("node:crypto");
 const { Transform } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
+const { spawn } = require("node:child_process");
 const { WebSocketServer, WebSocket } = require("ws");
 const { createNeteaseProvider } = require("./netease.cjs");
 const { createNeteaseAuth } = require("./netease-auth.cjs");
+const { createCredentialStore } = require("./credential-store.cjs");
+const { createBackgroundStore } = require("./background-store.cjs");
 
 const ROOT = __dirname;
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".jpg": "image/jpeg", ".mp4": "video/mp4" };
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".jpg": "image/jpeg", ".png":"image/png", ".webp":"image/webp", ".gif":"image/gif", ".mp4": "video/mp4" };
 const AUDIO = { ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac", ".wav": "audio/wav", ".ogg": "audio/ogg", ".opus": "audio/ogg", ".webm": "audio/webm" };
-const PUBLIC = new Set(["index.html", "style.css", "app.js", "room.css", "room.js", "netease.js"]);
+const PUBLIC = new Set(["style.css", "app.js", "personal-data.js", "music-library.js", "room.css", "room.js", "netease.js", "assets/images/custom-backgrounds.js"]);
 const STATES = new Set(["idle", "study", "paused", "break"]);
 const cleanName = (s) => typeof s === "string" ? s.trim().slice(0, 24) : "";
 
 function createRoomServer(options = {}) {
   const env = options.env || process.env;
   const netease = options.netease || createNeteaseProvider();
-  const neteaseAuth = createNeteaseAuth({ fetch: options.authFetch, publicProvider: netease, diagnostic: options.authDiagnostic || (options.env ? null : (data) => console.info('[netease-auth]', JSON.stringify(data))) });
-  function musicContext(req) {
-    const session = neteaseAuth.find(req), epoch = session?.epoch;
+  const backgroundDirectory=options.backgroundDirectory || path.join(ROOT,"assets/images");
+  const backgrounds=createBackgroundStore({directory:backgroundDirectory}), backgroundToken=randomBytes(32).toString("hex");
+  function localBackgroundAccess(req) {
+    if(req.headers["x-forwarded-for"] || req.headers["cf-connecting-ip"] || req.headers.forwarded || req.headers["sec-fetch-site"]==="cross-site") return false;
+    const peer=req.socket.remoteAddress, own=req.socket.localAddress;
+    let host;try {host=new URL("http://"+req.headers.host).hostname;} catch {return false;}
+    return (["127.0.0.1","::1","::ffff:127.0.0.1"].includes(peer) && ["localhost","127.0.0.1","[::1]"].includes(host)) || (peer===own && [own,`[${own}]`].includes(host));
+  }
+  const authStore = options.authStore !== undefined ? options.authStore : createCredentialStore();
+  const neteaseAuth = createNeteaseAuth({ store: authStore, fetch: options.authFetch, publicProvider: netease, diagnostic: options.authDiagnostic || (options.env ? null : (data) => console.info('[netease-auth]', JSON.stringify(data))) });
+  async function musicContext(req) {
+    const session = neteaseAuth.find(req); await neteaseAuth.refresh(session); const epoch = session?.epoch;
     return { provider: neteaseAuth.provider(req), check() { if (session && session.epoch !== epoch) throw Object.assign(new Error("登录状态已改变，请重新读取歌单。"), { status: 401 }); } };
   }
   const rooms = new Map(), connections = new Set(), sessions = new Map();
@@ -152,7 +164,7 @@ function createRoomServer(options = {}) {
     try { stat = await fsp.stat(file); } catch { res.writeHead(404).end(); return; }
     if (!stat.isFile()) { res.writeHead(404).end(); return; }
     res.setHeader("Content-Type", mime);
-    res.setHeader("Cache-Control", privateFile ? "private, no-store" : file.startsWith(path.join(ROOT, "assets")) ? "public, max-age=3600" : "no-cache");
+    res.setHeader("Cache-Control", privateFile ? "private, no-store" : file.startsWith(path.join(ROOT, "assets")) && mime!==MIME[".js"] ? "public, max-age=3600" : "no-cache");
     res.setHeader("Accept-Ranges", "bytes");
     let start = 0, end = stat.size - 1;
     if (req.headers.range) {
@@ -208,19 +220,39 @@ function createRoomServer(options = {}) {
   async function handle(req, res) {
     let url;
     try { url = new URL(req.url, "http://localhost"); } catch { res.writeHead(400).end(); return; }
+    if(url.pathname==="/api/backgrounds") {
+      if(req.method==="GET") {const canUpload=localBackgroundAccess(req);json(res,200,{items:await backgrounds.list(),canUpload,...(canUpload?{token:backgroundToken}:{})});return;}
+      if(req.method!=="POST") {res.writeHead(405).end();return;}
+      if(!localBackgroundAccess(req) || !allowedOrigin(req) || req.headers["x-background-token"]!==backgroundToken) {json(res,403,{error:"复制背景到项目需要在运行服务的电脑上操作，请刷新本机页面后重试。"});return;}
+      try {
+        const parts=[];let length=0;
+        for await(const part of req) {length+=part.length;if(length>20*1024*1024) throw Object.assign(new Error("每张背景图片最多 20 MB。"),{status:413});parts.push(part);}
+        let name="自选背景";try {name=decodeURIComponent(String(req.headers["x-file-name"] || "自选背景").slice(0,1500));} catch {}
+        json(res,201,await backgrounds.save(Buffer.concat(parts),name));
+      } catch(err) {json(res,err.status || 500,{error:err.status?err.message:"未能保存背景图片，请检查项目文件夹是否可写。"});}
+      return;
+    }
     if (url.pathname.startsWith("/api/netease/auth/")) {
       if (req.headers["sec-fetch-site"] === "cross-site") { json(res, 403, { error: "请在学习页面中操作登录。" }); return; }
       try {
+        const secure = req.headers["x-forwarded-proto"] === "https" || Boolean(req.socket.encrypted);
         if (url.pathname === "/api/netease/auth/status" && req.method === "GET") {
-          const secure = req.headers["x-forwarded-proto"] === "https" || Boolean(req.socket.encrypted);
-          json(res, 200, neteaseAuth.status(neteaseAuth.ensure(req, res, secure))); return;
+          const account = neteaseAuth.ensure(req, res, secure); await neteaseAuth.refresh(account); neteaseAuth.writeCookie(account,res,secure);
+          json(res, 200, neteaseAuth.status(account)); return;
         }
         const account = neteaseAuth.find(req);
         if (req.method !== "POST" || !allowedOrigin(req) || !account || req.headers["x-csrf-token"] !== account.csrf) { json(res, 403, { error: "登录操作验证失败，请刷新页面后重试。" }); return; }
-        if (url.pathname === "/api/netease/auth/qr") json(res, 200, await neteaseAuth.startQr(account));
-        else if (url.pathname === "/api/netease/auth/check") json(res, 200, await neteaseAuth.checkQr(account, url.searchParams.get("challenge")));
-        else if (url.pathname === "/api/netease/auth/logout") json(res, 200, neteaseAuth.logout(account));
-        else json(res, 404, { error: "登录接口不存在。" });
+        let result;
+        if (["/api/netease/auth/qr", "/api/netease/auth/remember"].includes(url.pathname)) {
+          let body="";for await(const chunk of req) {body+=chunk.toString();if(body.length>256) throw Object.assign(new Error("请求过大。"),{status:413});}
+          let input;try {input=JSON.parse(body || "{}");} catch {throw Object.assign(new Error("登录请求无效。"),{status:400});}
+          if(url.pathname.endsWith("/remember") && typeof input?.remember!=="boolean") throw Object.assign(new Error("请选择是否记住登录。"),{status:400});
+          result=url.pathname.endsWith("/qr") ? await neteaseAuth.startQr(account,input?.remember===true) : await neteaseAuth.remember(account,input.remember);
+        }
+        else if (url.pathname === "/api/netease/auth/check") result=await neteaseAuth.checkQr(account, url.searchParams.get("challenge"));
+        else if (url.pathname === "/api/netease/auth/logout") {result=neteaseAuth.logout(account);await neteaseAuth.flush();}
+        else {json(res, 404, { error: "登录接口不存在。" });return;}
+        neteaseAuth.writeCookie(account,res,secure);json(res,200,result);
       } catch (err) { json(res, err.status || 502, { error: err.status ? err.message : "网易云登录服务暂时无法连接，请稍后重试。" }); }
       return;
     }
@@ -234,7 +266,7 @@ function createRoomServer(options = {}) {
         let body = "";
         for await (const chunk of req) { body += chunk.toString(); if (body.length > 2048) throw Object.assign(new Error("请求过大。"), { status: 413 }); }
         let input; try { input = JSON.parse(body); } catch { json(res, 400, { error: "导入请求无效。" }); return; }
-        const context = musicContext(req);
+        const context = await musicContext(req);
         const playlist = await context.provider.getPlaylist(input.playlistId); context.check();
         if (rooms.get(room.code) !== room || !sessions.has(member.token)) { json(res, 409, { error: "你已离开房间，请重新加入。" }); return; }
         const existing = new Set(room.queue.map((t) => t.neteaseId));
@@ -251,13 +283,13 @@ function createRoomServer(options = {}) {
     if (req.method === "POST" && uploadMatch) { await upload(req, res, uploadMatch[1]); return; }
     if (req.method !== "GET" && req.method !== "HEAD") { res.writeHead(405).end(); return; }
     if (url.pathname === "/api/netease/playlist") {
-      try { const link = url.searchParams.get("link") || ""; if (link.length > 1000) { json(res, 400, { error: "链接过长，请只粘贴歌单链接。" }); return; } const context = musicContext(req); const data = await context.provider.getPlaylist(link); context.check(); json(res, 200, data); }
+      try { const link = url.searchParams.get("link") || ""; if (link.length > 1000) { json(res, 400, { error: "链接过长，请只粘贴歌单链接。" }); return; } const context = await musicContext(req); const data = await context.provider.getPlaylist(link); context.check(); json(res, 200, data); }
       catch (err) { json(res, err.status || 502, { error: err.status ? err.message : "连接网易云失败，请稍后重试。" }); }
       return;
     }
     const neteaseAudio = /^\/api\/netease\/audio\/([1-9]\d{0,15})$/.exec(url.pathname);
     if (neteaseAudio) {
-      try { const context = musicContext(req); const target = await context.provider.resolveAudio(neteaseAudio[1]); context.check(); res.writeHead(302, { Location: target, "Cache-Control": "no-store" }); res.end(); }
+      try { const context = await musicContext(req); const target = await context.provider.resolveAudio(neteaseAudio[1]); context.check(); res.writeHead(302, { Location: target, "Cache-Control": "no-store" }); res.end(); }
       catch (err) { json(res, err.status || 502, { error: err.status ? err.message : "无法加载网易云音频。" }); }
       return;
     }
@@ -271,10 +303,15 @@ function createRoomServer(options = {}) {
     }
     let pathname;
     try { pathname = decodeURIComponent(url.pathname); } catch { res.writeHead(400).end(); return; }
-    const relative = pathname === "/" ? "index.html" : pathname.slice(1);
-    const asset = /^assets\/(images|videos)\/[a-zA-Z0-9_-]+\.(jpg|mp4)$/.test(relative);
+    if (pathname === "/" || pathname === "/index.html") {
+      await serveFile(req, res, path.join(ROOT, "..", "index.html"), MIME[".html"]); return;
+    }
+    // Only the same public assets are exposed; app/ also contains private server files.
+    const relative = pathname.startsWith("/app/") ? pathname.slice(5) : pathname.slice(1);
+    const asset = /^(?:assets\/images\/[a-zA-Z0-9_-]+\.(jpg|png|webp|gif)|assets\/videos\/[a-zA-Z0-9_-]+\.mp4)$/.test(relative);
     if (!PUBLIC.has(relative) && !asset) { res.writeHead(404).end(); return; }
-    await serveFile(req, res, path.join(ROOT, relative), MIME[path.extname(relative)] || "application/octet-stream");
+    const custom=relative==="assets/images/custom-backgrounds.js" || /^assets\/images\/custom-[a-f0-9]{64}\.(jpg|png|webp|gif)$/.test(relative);
+    await serveFile(req, res, custom?path.join(backgroundDirectory,path.basename(relative)):path.join(ROOT, relative), MIME[path.extname(relative)] || "application/octet-stream");
   }
   const wss = new WebSocketServer({ noServer: true, maxPayload: 32 * 1024, perMessageDeflate: false });
   server.on("upgrade", (req, socket, head) => {
@@ -364,7 +401,8 @@ function createRoomServer(options = {}) {
   }, 30000);
   heartbeat.unref();
   async function close() {
-    neteaseAuth.close();
+    await backgrounds.flush();
+    await neteaseAuth.close();
     closing = true; clearInterval(heartbeat);
     for (const room of [...rooms.values()]) destroyRoom(room);
     for (const c of connections) c.ws.terminate();
@@ -379,7 +417,17 @@ function createRoomServer(options = {}) {
 }
 if (require.main === module) {
   const app = createRoomServer();
-  app.server.listen(Number(process.env.PORT || 8642), process.env.HOST || "127.0.0.1", () => console.log(`Miku Focus: http://localhost:${app.server.address().port}\nFor a public HTTPS link, run npm run share.`));
+  app.server.listen(Number(process.env.PORT || 8642), process.env.HOST || "127.0.0.1", () => {
+    const address = app.server.address();
+    const hostname = ["0.0.0.0", "::", "127.0.0.1", "::1"].includes(address.address) ? "localhost" : address.address.includes(":") ? `[${address.address}]` : address.address;
+    const url = `http://${hostname}:${address.port}`;
+    console.log(`Miku Focus: ${url}\nFor a public HTTPS link, run npm run share.`);
+    if (process.env.MIKU_OPEN_BROWSER === "1") {
+      const command = process.platform === "win32" ? "explorer.exe" : process.platform === "darwin" ? "open" : "xdg-open";
+      const opener = spawn(command, [url], { windowsHide: true, stdio: "ignore" });
+      opener.on("error", () => console.warn(`Please open ${url} in your browser.`)); opener.unref();
+    }
+  });
   for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => app.close().then(() => process.exit(0)));
 }
 module.exports = { createRoomServer };

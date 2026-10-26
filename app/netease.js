@@ -2,7 +2,7 @@
 (() => {
   "use strict";
   const el = (id) => document.getElementById(id), mask = el("neteaseModal");
-  let preview = null, busy = false, request = null, previousFocus = null;
+  let preview = null, busy = false, request = null, previousFocus = null, libraryOnly = false;
   let auth = { loggedIn: false, name: "", csrf: "" }, authReady = null, qrTimer = 0, qrVersion = 0, qrPending = false, cancelPending = Promise.resolve();
   const authChannel = typeof BroadcastChannel === "function" ? new BroadcastChannel("miku-netease-auth") : null;
   function authError(message, status = 502) { return Object.assign(new Error(message), { status, retryable: status === 0 || status === 408 || status === 429 || status >= 500 }); }
@@ -22,13 +22,16 @@
     const changed = auth.loggedIn !== data.loggedIn || auth.name !== data.name;
     auth = data;
     el("neteaseAccount").textContent = data.loggedIn ? `已登录 · ${data.name}` : "未登录网易云";
-    el("neteaseAccountHint").textContent = data.loggedIn ? "使用你的账号权限获取歌曲。退出后清除本次登录。" : "可直接导入公开音源，也可以扫码使用自己的账号权限。";
+    el("neteaseAccountHint").textContent = data.rememberWarning || (data.loggedIn ? data.remembered ? "已记住登录，下次启动会验证并恢复。退出登录会清除保存记录。" : "使用你的账号权限获取歌曲。可勾选下方选项记住登录。" : "可直接导入公开音源，也可以扫码使用自己的账号权限。");
+    el("neteaseRemember").disabled = !data.rememberAvailable || qrPending;
+    if (data.loggedIn || !data.rememberAvailable) el("neteaseRemember").checked = Boolean(data.remembered);
+    el("neteaseRememberHint").textContent = data.rememberAvailable ? "登录凭证由 Windows 加密保存在运行服务的电脑上，最长记住 30 天；平台失效后仍需扫码。" : "此运行环境暂不支持安全记住登录，当前登录仅在本次服务中有效。";
     el("neteaseLogin").hidden = data.loggedIn; el("neteaseLogout").hidden = !data.loggedIn;
     if (changed) {
       invalidatePreview();
       if (!data.loggedIn) window.mikuFocus.clearAccountTracks();
       window.dispatchEvent(new CustomEvent("miku-netease-auth", { detail: { loggedIn: data.loggedIn } }));
-      status(data.loggedIn ? "登录成功。请重新读取歌单，按你的账号权限检查歌曲。" : "已退出登录，可继续导入公开音源。");
+      status(data.loggedIn ? "登录成功，音乐库中已保存的账号歌曲可按当前权限播放；也可以继续导入歌单。" : "当前未登录。会员歌曲仍保留在音乐库，重新登录后可按权限播放。");
     }
   }
   function refreshAuth() {
@@ -37,12 +40,12 @@
     authReady = authJson("status").then(data => { if (typeof data.loggedIn !== "boolean" || typeof data.csrf !== "string") throw authError("登录服务暂未返回有效状态"); applyAuth(data); }).finally(() => { authReady = null; });
     return authReady;
   }
-  async function authPost(path) {
+  async function authPost(path, data) {
     if (!auth.csrf) await refreshAuth();
-    try { return await authJson(path, { method: "POST", headers: { "X-CSRF-Token": auth.csrf } }); }
+    try { return await authJson(path, { method: "POST", headers: { "X-CSRF-Token": auth.csrf, ...(data ? { "Content-Type": "application/json" } : {}) }, ...(data ? { body: JSON.stringify(data) } : {}) }); }
     catch (err) { if (err.status === 401 || err.status === 403) await refreshAuth().catch(() => {}); throw err; }
   }
-  function hideQr() { qrVersion++; clearTimeout(qrTimer); el("neteaseLogin").disabled = false; el("neteaseQrPanel").hidden = true; el("neteaseQrImage").removeAttribute("src"); el("neteaseQrImage").hidden = true; }
+  function hideQr() { qrVersion++; clearTimeout(qrTimer); el("neteaseRemember").disabled = !auth.rememberAvailable; el("neteaseLogin").disabled = false; el("neteaseQrPanel").hidden = true; el("neteaseQrImage").removeAttribute("src"); el("neteaseQrImage").hidden = true; }
   async function cancelQr() {
     const pending = qrPending; qrPending = false; hideQr();
     if (pending && !auth.loggedIn) {
@@ -52,11 +55,11 @@
   }
   async function startQr() {
     await cancelQr(); await cancelPending;
-    const version = ++qrVersion; qrPending = true; el("neteaseLogin").disabled = true; el("neteaseQrPanel").hidden = false;
+    const version = ++qrVersion; qrPending = true; el("neteaseRemember").disabled = true; el("neteaseLogin").disabled = true; el("neteaseQrPanel").hidden = false;
     el("neteaseOfficial").hidden = true;
     el("neteaseQrStatus").textContent = "正在生成二维码…"; el("neteaseQrRefresh").disabled = true;
     try {
-      const data = await authPost("qr");
+      const data = await authPost("qr", { remember: el("neteaseRemember").checked });
       if (version !== qrVersion) return;
       el("neteaseQrImage").src = data.image; el("neteaseQrImage").hidden = false;
       el("neteaseQrStatus").textContent = "等待扫码，请在手机上确认登录。";
@@ -98,6 +101,13 @@
   el("neteaseLogin").addEventListener("click", startQr);
   el("neteaseQrRefresh").addEventListener("click", startQr);
   el("neteaseQrCancel").addEventListener("click", cancelQr);
+  el("neteaseRemember").addEventListener("change", async () => {
+    if (!auth.loggedIn) return;
+    const remember = el("neteaseRemember").checked; el("neteaseRemember").disabled = true;
+    try { applyAuth(await authPost("remember", { remember })); authChannel?.postMessage("changed"); }
+    catch (err) { await refreshAuth().catch(() => {}); status(err.message, true); }
+    finally { el("neteaseRemember").disabled = !auth.rememberAvailable || qrPending; }
+  });
   el("neteaseLogout").addEventListener("click", async () => {
     el("neteaseLogout").disabled = true;
     try { const data = await authPost("logout"); hideQr(); applyAuth(data); authChannel?.postMessage("changed"); }
@@ -114,7 +124,8 @@
     el("neteaseCheck").textContent = value ? "请稍候…" : "读取歌单";
   }
   function close() { request?.abort(); mask.hidden = true; setBusy(false); cancelQr(); previousFocus?.focus(); }
-  function open() {
+  function open(options = {}) {
+    libraryOnly = options.libraryOnly === true;
     previousFocus = document.activeElement; mask.hidden = false;
     if (!el("neteaseLink").value) { try { el("neteaseLink").value = localStorage.getItem("mikuFocusNeteaseLink") || ""; } catch {} }
     el("neteaseLink").focus();
@@ -135,11 +146,11 @@
       li.append(index, detail, badge); el("neteaseTracks").append(li);
     });
     el("neteaseImport").textContent = `导入可播放的 ${data.available} 首`;
-    status(data.available ? (window.mikuRoom?.active ? "将添加到当前房间的共享歌单；账号歌曲需每位成员各自登录。" : "将添加到你的播放列表，重复歌曲会跳过。") : "这份歌单暂时没有可用音源，可以登录后重试或在网易云客户端收听。", !data.available);
+    status(data.available ? (window.mikuRoom?.active && !libraryOnly ? "将添加到当前房间的共享歌单；账号歌曲需每位成员各自登录。" : "将按歌单名保存到音乐库；你可以整张播放，或选择单首加入播放列表。") : "这份歌单暂时没有可用音源，可以登录后重试或在网易云客户端收听。", !data.available);
   }
   el("neteaseForm").addEventListener("submit", async (event) => {
     event.preventDefault(); if (busy) return;
-    if (location.protocol === "file:") { status("网易云导入需要学习房间服务。请双击“启动学习房间.cmd”或“一键分享学习房间.cmd”后使用。", true); return; }
+    if (location.protocol === "file:") { status("网易云导入需要学习房间服务。请双击“启动学习房间.cmd”或“启动工具/一键分享学习房间.cmd”后使用。", true); return; }
     request?.abort(); const controller = new AbortController(); request = controller;
     preview = null; el("neteaseResults").hidden = true; setBusy(true); status("正在读取歌单并逐首检查音源，请稍候…");
     try {
@@ -156,13 +167,15 @@
     if (busy || !preview?.available) return;
     const data = preview; setBusy(true);
     try {
-      const result = window.mikuRoom?.active ? await window.mikuRoom.importNetease(data.id) : window.mikuFocus.addOnlineTracks(data.tracks);
-      close(); el("playlist").classList.add("open");
-      toast(`已导入 ${result.added} 首网易云音乐${result.capacitySkipped ? "，播放列表已满，部分歌曲未添加" : result.added ? "，点击播放即可开始听" : "，重复歌曲已跳过"}。`);
+      const roomImport = window.mikuRoom?.active && !libraryOnly;
+      const result = roomImport ? await window.mikuRoom.importNetease(data.id) : await window.mikuFocus.addOnlineTracks(data.tracks, { id: data.id, name: data.name });
+      close();
+      if (roomImport) { el("playlist").classList.add("open"); toast(`已导入 ${result.added} 首网易云音乐${result.capacitySkipped ? "，播放列表已满，部分歌曲未添加" : "，重复歌曲会跳过"}。`); }
+      else { await window.mikuFocus.openLibrary(result.groupId); toast(`已保存到「${data.name}」${result.added ? `，新增 ${result.added} 首` : "，重复歌曲已跳过"}。`); }
     } catch (err) { status(err.message || "导入失败，请重试。", true); }
     finally { setBusy(false); }
   });
-  el("neteaseLocal").addEventListener("click", () => { close(); el("fileInput").click(); });
+  el("neteaseLocal").addEventListener("click", () => { const personal = libraryOnly || !window.mikuRoom?.active; close(); if (personal) window.mikuFocus.pickLocalFiles(); else el("fileInput").click(); });
   el("neteaseClose").addEventListener("click", close);
   mask.addEventListener("click", (event) => { if (event.target === mask) close(); });
   mask.addEventListener("keydown", (event) => {

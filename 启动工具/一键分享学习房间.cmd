@@ -1,7 +1,7 @@
 @echo off
 setlocal
 chcp 65001 >nul
-cd /d "%~dp0"
+cd /d "%~dp0..\app"
 where node >nul 2>nul
 if errorlevel 1 (
   echo Please install Node.js 22.9 or newer: https://nodejs.org/

@@ -6,7 +6,7 @@ const { createRoomServer } = require("../server.cjs");
 const { tunnelUrl } = require("../tools/share.cjs");
 
 async function start(t, options = {}) {
-  const app = createRoomServer({ env: {}, ...options });
+  const app = createRoomServer({ env: {}, authStore: null, ...options });
   await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve)); t.after(() => app.close());
   return { ...app, origin: `http://127.0.0.1:${app.server.address().port}` };
 }
@@ -38,11 +38,15 @@ async function upload(origin, member, name = "测试.wav", body = Buffer.from("R
 test("public files/ranges work; private files and unauthenticated uploads are denied", async (t) => {
   const { origin } = await start(t);
   assert.equal((await fetch(origin)).status, 200);
+  assert.match(await (await fetch(origin + "/index.html")).text(), /<base href="app\/">/);
+  for (const asset of ["/app/app.js", "/app/personal-data.js", "/app/style.css", "/app/room.js", "/app/netease.js"]) assert.equal((await fetch(origin + asset)).status, 200, asset);
   assert.equal((await (await fetch(origin + "/health")).json()).protocol, 2);
-  for (const file of ["/.env", "/.git/config", "/server.cjs", "/.share-info.json", "/tools/share.cjs", "/assets/../server.cjs"]) assert.equal((await fetch(origin + file)).status, 404, file);
+  for (const file of ["/.env", "/.git/config", "/server.cjs", "/.share-info.json", "/tools/share.cjs", "/assets/../server.cjs", "/app/server.cjs", "/app/netease-auth.cjs", "/app/package.json", "/app/.env", "/app/tools/share.cjs", "/app/tests/server.test.cjs", "/app/node_modules/ws/package.json", "/app/../.git/config", "/docs/交接文档.md"]) assert.equal((await fetch(origin + file)).status, 404, file);
   const partial = await fetch(origin + "/assets/videos/miku_sea_color.mp4", { headers: { Range: "bytes=0-31" } });
   assert.equal(partial.status, 206); assert.equal((await partial.arrayBuffer()).byteLength, 32);
   assert.equal((await fetch(origin + "/assets/videos/miku_sea_color.mp4", { headers: { Range: "bytes=999999999-" } })).status, 416);
+  assert.equal((await fetch(origin + "/app/music-library.js")).status, 200);
+  for (const file of ["/credential-store.cjs", "/app/credential-store.cjs", "/netease-sessions.dpapi", "/app/netease-sessions.dpapi"]) assert.equal((await fetch(origin + file)).status, 404);
   assert.equal((await upload(origin, { code: "ABCDEF123456", token: "guess" })).status, 403);
 });
 

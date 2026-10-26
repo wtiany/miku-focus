@@ -25,6 +25,7 @@ function authFixture() {
     }
     const owner = /MUSIC_U=fixture-user-(\d+)/.exec(cookie)?.[1];
     if (u.pathname === '/api/w/nuser/account/get') {
+      if (control.profileExpired) return Response.json({ code: 301 });
       if (control.profileFailures > 0) { control.profileFailures--; return new Response('<!DOCTYPE html><html>Temporary upstream error</html>', { headers: { 'Content-Type': 'text/html' } }); }
       return Response.json({ code: 200, profile: owner ? { userId: owner, nickname: '测试账号' + owner } : null });
     }

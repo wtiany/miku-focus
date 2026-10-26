@@ -15,7 +15,7 @@ function sineWave() {
   return buffer;
 }
 (async () => {
-  const app = createRoomServer({ env: {}, hostGraceMs: 100 });
+  const app = createRoomServer({ env: {}, authStore: null, hostGraceMs: 100 });
   await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   const origin = process.env.MIKU_TEST_ORIGIN || `http://localhost:${app.server.address().port}`;
   const browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || "msedge", headless: true });
@@ -105,11 +105,13 @@ function sineWave() {
     console.log("PASS: mobile fits; explicit end clears room audio and restores solo controls");
 
     const offline = await hostContext.newPage(); watch(offline);
-    await offline.goto(pathToFileURL(path.join(__dirname, "../index.html")).href, { waitUntil: "domcontentloaded" });
+    await offline.goto(pathToFileURL(path.join(__dirname, "../../index.html")).href, { waitUntil: "domcontentloaded" });
     await offline.locator("#btnStart").click(); assert.equal(await offline.locator("body").getAttribute("data-state"), "study");
     await offline.locator("#roomLaunch").click(); await offline.locator("#roomName").fill("离线用户"); await offline.locator("#roomCreate").click();
     assert.match(await offline.locator("#roomMessage").innerText(), /一键分享/);
     await offline.locator("#fileInput").setInputFiles({ name: "本地音乐.wav", mimeType: "audio/wav", buffer: sineWave() });
+    await offline.locator("#musicLibraryModal").waitFor({ state: "visible" });
+    await offline.locator("#libraryPlayAll").click();
     await offline.waitForFunction(() => document.getElementById("npName").textContent === "本地音乐");
     console.log("PASS: offline file:// timer and private local music still work");
     assert.deepEqual(errors, []);

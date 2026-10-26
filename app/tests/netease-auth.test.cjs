@@ -10,6 +10,37 @@ function client(auth) {
   return { session, req: { headers: { cookie } } };
 }
 async function login(auth, s) { const qr = await auth.startQr(s); assert.match(qr.image, /^data:image\/png;base64,/); const result = await auth.checkQr(s, qr.challenge); assert.equal(result.code, 803); return qr; }
+function memoryStore() {
+  let saved=[];
+  return { load:()=>structuredClone(saved), save:async records=>{saved=structuredClone(records);} };
+}
+test('remembered login survives a service restart, verifies the platform, and remains isolated per browser', async () => {
+  const store=memoryStore(), fixture=authFixture();
+  let auth=createNeteaseAuth({store,fetch:fixture.fetcher,publicProvider:fixture.publicProvider});
+  const a=client(auth), b=client(auth);
+  const qr=await auth.startQr(a.session,true); await auth.checkQr(a.session,qr.challenge); await login(auth,b.session);
+  assert.equal(auth.status(a.session).remembered,true); assert.equal(store.load().length,1);
+  let cookieHeader;auth.writeCookie(a.session,{setHeader:(_,value)=>{cookieHeader=value;}},true);assert.match(cookieHeader,/Secure; Max-Age=\d+/);
+  await auth.close();
+  auth=createNeteaseAuth({store,fetch:fixture.fetcher,publicProvider:fixture.publicProvider});
+  const restored=auth.find(a.req);assert.ok(restored); assert.equal(auth.find(b.req),null);
+  fixture.control.profileFailures=1; await assert.rejects(auth.refresh(restored));assert.equal(store.load().length,1);
+  await auth.refresh(restored);assert.equal(auth.status(restored).loggedIn,true);
+  assert.equal(await auth.provider(a.req).resolveAudio('12'),'https://m10.music.126.net/user-1-12.mp3');
+  await auth.remember(restored,false);assert.deepEqual(store.load(),[]);assert.equal(restored.loggedIn,true);
+  await auth.remember(restored,true);auth.logout(restored);await auth.flush();assert.deepEqual(store.load(),[]);
+  await auth.close();const fresh=createNeteaseAuth({store,fetch:fixture.fetcher,publicProvider:fixture.publicProvider});assert.equal(fresh.find(a.req),null);await fresh.close();
+});
+test('platform expiry and local remember expiry invalidate persisted login; a failed save cannot falsely report remembered', async () => {
+  const store=memoryStore(), fixture=authFixture();let auth=createNeteaseAuth({store,fetch:fixture.fetcher,publicProvider:fixture.publicProvider});const a=client(auth);
+  let qr=await auth.startQr(a.session,true);await auth.checkQr(a.session,qr.challenge);await auth.close();
+  auth=createNeteaseAuth({store,fetch:fixture.fetcher,publicProvider:fixture.publicProvider});fixture.control.profileExpired=true;
+  await auth.refresh(auth.find(a.req));await auth.flush();assert.equal(auth.provider(a.req),fixture.publicProvider);assert.deepEqual(store.load(),[]);await auth.close();
+  fixture.control.profileExpired=false;auth=createNeteaseAuth({store,fetch:fixture.fetcher,publicProvider:fixture.publicProvider});const b=client(auth);
+  qr=await auth.startQr(b.session,true);await auth.checkQr(b.session,qr.challenge);b.session.rememberUntil=0;assert.equal(auth.find(b.req),null);await auth.flush();assert.deepEqual(store.load(),[]);await auth.close();
+  const broken={load:()=>[],save:async()=>{throw new Error('disk full');}};auth=createNeteaseAuth({store:broken,fetch:fixture.fetcher,publicProvider:fixture.publicProvider});const c=client(auth);
+  qr=await auth.startQr(c.session,true);const status=await auth.checkQr(c.session,qr.challenge);assert.equal(status.loggedIn,true);assert.equal(status.remembered,false);assert.match(status.rememberWarning,/无法/);await auth.close();
+});
 
 test('QR status, session isolation, individual audio permissions, preview rejection and logout', async () => {
   const fixture = authFixture(), auth = createNeteaseAuth({ fetch: fixture.fetcher, publicProvider: fixture.publicProvider });
@@ -74,7 +105,7 @@ test('8821 is a terminal platform rejection, never a network retry or successful
 });
 
 test('HTTP login requires CSRF and same origin; logout blocks an in-flight account audio response', async t => {
-  const fixture = authFixture(), app = createRoomServer({ env: {}, authFetch: fixture.fetcher, netease: fixture.publicProvider });
+  const fixture = authFixture(), app = createRoomServer({ env: {}, authStore: null, authFetch: fixture.fetcher, netease: fixture.publicProvider });
   await new Promise(r => app.server.listen(0, '127.0.0.1', r)); t.after(() => app.close());
   const origin = `http://127.0.0.1:${app.server.address().port}`;
   const response = await fetch(origin + '/api/netease/auth/status'), cookie = response.headers.get('set-cookie').split(';')[0];
@@ -83,6 +114,9 @@ test('HTTP login requires CSRF and same origin; logout blocks an in-flight accou
   const post = (path, headers = {}) => fetch(origin + '/api/netease/auth/' + path, { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'X-CSRF-Token': state.csrf, ...headers } });
   assert.equal((await post('qr', { 'X-CSRF-Token': 'bad' })).status, 403);
   assert.equal((await post('qr', { Origin: 'https://example.com' })).status, 403);
+  assert.equal((await post('remember', { 'X-CSRF-Token': 'bad' })).status, 403);
+  assert.equal((await post('remember', { Origin: 'https://example.com' })).status, 403);
+  assert.equal((await fetch(origin + '/api/netease/auth/remember', { method:'POST', headers:{ Cookie:cookie,Origin:origin,'X-CSRF-Token':state.csrf,'Content-Type':'application/json' },body:'{"remember":"invalid"}' })).status, 400);
   const qr = await (await post('qr')).json(); state = await (await post('check?challenge=' + qr.challenge)).json(); assert.equal(state.loggedIn, true);
   assert.equal((await fetch(origin + '/api/netease/audio/12', { redirect: 'manual' })).status, 404);
   let release; fixture.control.hold = new Promise(r => { release = r; });

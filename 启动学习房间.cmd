@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0app"
 where node >nul 2>nul
 if errorlevel 1 (
   echo Please install Node.js 22.9 or newer first.
@@ -17,6 +17,7 @@ if defined MIKU_NEEDS_INSTALL (
     exit /b 1
   )
 )
-echo Open http://localhost:8642 after the server starts.
+echo Your browser will open automatically after the server starts.
+set "MIKU_OPEN_BROWSER=1"
 call npm start
 pause

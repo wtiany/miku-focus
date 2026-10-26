@@ -4,11 +4,34 @@ const QRCode = require('qrcode');
 const { createNeteaseProvider, NeteaseError } = require('./netease.cjs');
 const { eapiRequest, weapiRequest } = require('./netease-protocol.cjs');
 const COOKIE_NAME = 'miku_netease_session';
+const REMEMBER_MS = 30 * 24 * 3600000;
 const BASE_HEADERS = { Referer: 'https://music.163.com/', 'User-Agent': 'Mozilla/5.0', 'Cache-Control': 'no-cache' };
 const BLOCKED_MESSAGE = '网易云拒绝了本次扫码登录（8821）。请到网易云官网使用官方登录方式完成必要的安全验证；反复刷新二维码无法解决。';
 function createNeteaseAuth(options = {}) {
   const fetcher = options.fetch || fetch, accounts = new Map();
   const publicProvider = options.publicProvider;
+  const store = options.store;
+  let saving = Promise.resolve();
+  function session(fields = {}) {
+    return { id:randomBytes(32).toString('hex'),deviceId:randomBytes(16).toString('hex'),csrf:randomBytes(24).toString('hex'),jar:new Map(),loggedIn:false,name:'',profileId:'',lastSeen:Date.now(),challenge:null,qrStarts:[],provider:null,epoch:0,remembered:false,rememberUntil:0,rememberWanted:false,validatedAt:0,...fields };
+  }
+  function attachProvider(s) { s.provider=createNeteaseProvider({fetch:fetcher,cookie:()=>s.loggedIn?cookieHeader(s):'',publicProvider,onExpired:()=>clear(s)}); }
+  if (store) for (const record of store.load().slice(0, 100)) {
+    if (!/^[a-f0-9]{64}$/.test(record?.id || '') || !/^[a-f0-9]{32}$/.test(record.deviceId || '') || !Array.isArray(record.jar) || !(record.rememberUntil > Date.now())) continue;
+    const jar = new Map(record.jar.filter(p => Array.isArray(p) && /^[a-zA-Z0-9_]+$/.test(p[0]) && typeof p[1] === 'string' && !/[\r\n;]/.test(p[1])));
+    if (!jar.has('MUSIC_U')) continue;
+    const s = session({ id:record.id,deviceId:record.deviceId,jar,loggedIn:true,name:String(record.name || '').slice(0,60),profileId:String(record.profileId || ''),remembered:true,rememberUntil:record.rememberUntil,rememberWanted:true });
+    attachProvider(s); accounts.set(s.id,s);
+  }
+  function persist() {
+    if (!store) return Promise.resolve();
+    const records=[...accounts.values()].filter(s=>s.remembered && s.loggedIn && s.rememberUntil>Date.now()).map(s=>({ id:s.id,deviceId:s.deviceId,name:s.name,profileId:s.profileId,jar:[...s.jar],rememberUntil:s.rememberUntil }));
+    saving=store.save(records); saving.catch(()=>{}); return saving;
+  }
+  function writeCookie(s,res,secure) {
+    const age=s.remembered ? `; Max-Age=${Math.max(0,Math.floor((s.rememberUntil-Date.now())/1000))}` : '';
+    res.setHeader('Set-Cookie',`${COOKIE_NAME}=${s.id}; Path=/; HttpOnly; SameSite=Strict${secure?'; Secure':''}${age}`);
+  }
   function report(s, route, details) {
     const stage = route.includes('unikey') ? 'qr' : route.includes('client/login') ? 'scan' : 'account';
     const diagnostic = { stage, ...details, hasLoginCookie: s.jar.has('MUSIC_U') };
@@ -19,7 +42,7 @@ function createNeteaseAuth(options = {}) {
     }
   }
   function prune() {
-    for (const [id, s] of accounts) if (Date.now() - s.lastSeen > (s.loggedIn ? 12 * 3600000 : 10 * 60000)) { clear(s); accounts.delete(id); }
+    for (const [id, s] of accounts) if (s.remembered ? Date.now() >= s.rememberUntil : Date.now() - s.lastSeen > (s.loggedIn ? 12 * 3600000 : 10 * 60000)) { clear(s); accounts.delete(id); }
   }
   function find(req) {
     prune();
@@ -39,14 +62,14 @@ function createNeteaseAuth(options = {}) {
     }
   }
   function ensure(req,res,secure) {
-    let s=find(req); if(s) return s;
+    let s=find(req); if(s) { writeCookie(s,res,secure); return s; }
     if(accounts.size>=100) { const old=[...accounts.values()].filter(v=>!v.loggedIn).sort((a,b)=>a.lastSeen-b.lastSeen)[0]; if(old) { clear(old); accounts.delete(old.id); } else throw new NeteaseError('登录人数较多，请稍后重试。',429); }
-    s={id:randomBytes(32).toString('hex'),deviceId:randomBytes(16).toString('hex'),csrf:randomBytes(24).toString('hex'),jar:new Map(),loggedIn:false,name:'',profileId:'',lastSeen:Date.now(),challenge:null,qrStarts:[],provider:null,epoch:0};
+    s=session();
     accounts.set(s.id,s);
-    res.setHeader('Set-Cookie',`${COOKIE_NAME}=${s.id}; Path=/; HttpOnly; SameSite=Strict${secure?'; Secure':''}`);
+    writeCookie(s,res,secure);
     return s;
   }
-  function clear(s) { s.epoch++; s.jar.clear(); s.loggedIn=false; s.name=''; s.profileId=''; s.provider=null; s.challenge=null; s.completedChallenge=null; }
+  function clear(s,forget=true) { const remembered=s.remembered; s.epoch++; s.jar.clear(); s.loggedIn=false; s.name=''; s.profileId=''; s.provider=null; s.challenge=null; s.completedChallenge=null; s.remembered=false; s.rememberUntil=0; s.validatedAt=0; if (forget && remembered) persist(); }
   async function upstream(s,route,params={}) {
     const epoch=s.epoch;
     const wire=route.includes('/qrcode/') ? eapiRequest(route,params,s.jar,s.deviceId) : weapiRequest(route,params,s.jar);
@@ -58,15 +81,34 @@ function createNeteaseAuth(options = {}) {
     try { data=await r.json(); } catch { report(s,route,{httpStatus:r.status,error:'non-json'}); throw new NeteaseError(`网易云${route.includes('account/get')?'账号':'扫码'}验证接口返回了网页，未返回登录状态。`); }
     if(!data || typeof data!=='object' || Array.isArray(data)) throw new NeteaseError('网易云暂未返回有效登录状态，正在等待重试。');
     if(s.epoch!==epoch) throw new NeteaseError('登录状态已改变，请重试。',409);
-    mergeCookies(s,r.headers); report(s,route,{httpStatus:r.status,code:Number(data.code)||0}); return data;
+    const previous=cookieHeader(s); mergeCookies(s,r.headers); if(s.remembered && cookieHeader(s)!==previous) persist(); report(s,route,{httpStatus:r.status,code:Number(data.code)||0}); return data;
   }
-  function status(s) { return {loggedIn:s.loggedIn,name:s.name,csrf:s.csrf}; }
-  async function startQr(s) {
+  function status(s) { return {loggedIn:s.loggedIn,name:s.name,csrf:s.csrf,remembered:s.remembered,rememberAvailable:Boolean(store),rememberWarning:s.rememberWarning || ''}; }
+  async function remember(s,value) {
+    if(value && !store) throw new NeteaseError('此环境暂不支持安全保存登录状态。',409);
+    const wasRemembered=s.remembered, previousUntil=s.rememberUntil;
+    s.rememberWanted=Boolean(value); s.remembered=Boolean(value && s.loggedIn); s.rememberUntil=s.remembered ? Date.now()+REMEMBER_MS : 0;
+    try { if(s.remembered || wasRemembered) await persist(); s.rememberWarning=''; }
+    catch { s.remembered=wasRemembered;s.rememberUntil=previousUntil;s.rememberWarning='无法更新保存的登录记录，请检查 Windows 用户权限后重试。';throw new NeteaseError(s.rememberWarning); }
+    return status(s);
+  }
+  async function refresh(s) {
+    if(!s?.loggedIn || (s.validatedAt && Date.now()-s.validatedAt<15*60000)) return;
+    if(s.refreshing) return s.refreshing;
+    s.refreshing=(async()=>{
+      const account=await upstream(s,'/api/w/nuser/account/get'), profile=account.profile || account.data?.profile;
+      if(account.code===301 || account.code===401 || (account.code===200 && !profile?.userId)) { clear(s);await saving;return; }
+      if(account.code!==200 || !profile?.userId) throw new NeteaseError('暂时无法验证保存的登录状态，请稍后重试。');
+      s.name=String(profile.nickname || '网易云用户').slice(0,60);s.profileId=String(profile.userId);s.validatedAt=Date.now();
+    })().finally(()=>{s.refreshing=null;});
+    return s.refreshing;
+  }
+  async function startQr(s,rememberWanted=false) {
     const now=Date.now(); s.qrStarts=s.qrStarts.filter(t=>now-t<60000);
     if(s.qrStarts.length>=3) throw new NeteaseError('二维码刷新过快，请稍后重试。',429);
     if(s.loggedIn) throw new NeteaseError('已登录，请先退出后再切换账号。',409);
     if(s.starting) throw new NeteaseError('二维码正在生成，请稍候。',429);
-    s.qrStarts.push(now);s.starting=true; const epoch=s.epoch;
+    s.rememberWanted=Boolean(rememberWanted && store);s.qrStarts.push(now);s.starting=true; const epoch=s.epoch;
     try {
       const data=await upstream(s,'/api/login/qrcode/unikey',{type:3});
       const key=data.unikey || data.data?.unikey;
@@ -101,7 +143,10 @@ function createNeteaseAuth(options = {}) {
         if(account.code===301 || account.code===401) { clear(s);throw new NeteaseError('网易云未确认账号登录，请重新扫码。',401); }
         if(account.code!==200 || !profile?.userId) throw new NeteaseError('手机已确认，网易云账号状态暂未同步，正在等待重试。');
         s.epoch++;s.loggedIn=true;s.name=String(profile.nickname || '网易云用户').slice(0,60);s.profileId=String(profile.userId);
-        s.provider=createNeteaseProvider({fetch:fetcher,cookie:()=>s.loggedIn?cookieHeader(s):'',publicProvider,onExpired:()=>clear(s)});s.completedChallenge={id:c.id,expires:c.expires};s.challenge=null;
+        attachProvider(s);s.validatedAt=Date.now();s.completedChallenge={id:c.id,expires:c.expires};s.challenge=null;
+        const loginEpoch=s.epoch;
+        if(s.rememberWanted) await remember(s,true).catch(()=>{});
+        if(s.epoch!==loginEpoch || !s.loggedIn) throw new NeteaseError('登录已取消。',409);
         return {code:803,message:'登录成功，可以重新读取歌单。',...status(s)};
       }
       if(c.code===800) {s.challenge=null;return {code:800,message:'二维码已过期，请刷新。',...status(s)};}
@@ -111,7 +156,7 @@ function createNeteaseAuth(options = {}) {
   }
   function logout(s) { clear(s); s.csrf=randomBytes(24).toString('hex');return status(s); }
   function provider(req) { const s=find(req);return s?.loggedIn?s.provider:publicProvider; }
-  function close() {for(const s of accounts.values()) clear(s);accounts.clear();}
-  return {find,ensure,status,startQr,checkQr,logout,provider,close};
+  function close() {const flushed=saving.catch(()=>{});for(const s of accounts.values()) clear(s,false);accounts.clear();return flushed;}
+  return {find,ensure,status,startQr,checkQr,logout,provider,close,remember,refresh,writeCookie,flush:()=>saving};
 }
 module.exports={createNeteaseAuth};

@@ -1,0 +1,13 @@
+.git
+app/node_modules
+*.zip
+.env
+.env.*
+app/.env
+app/.env.*
+**/*.dpapi
+app/test-results
+app/tests
+app/.tools
+app/.share-info.json
+docs

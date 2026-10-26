@@ -11,7 +11,7 @@ function wave() {
   return data;
 }
 (async () => {
-  const fixture = authFixture(), app = createRoomServer({ env: {}, netease: fixture.publicProvider, authFetch: fixture.fetcher });
+  const fixture = authFixture(), app = createRoomServer({ env: {}, authStore: null, netease: fixture.publicProvider, authFetch: fixture.fetcher });
   await new Promise(r => app.server.listen(0, '127.0.0.1', r));
   const origin = `http://localhost:${app.server.address().port}`, errors = [];
   const browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'msedge', headless: true });
@@ -52,12 +52,15 @@ function wave() {
     const tab = await contexts[0].newPage(); await tab.goto(origin); await tab.waitForFunction(() => window.mikuNetease.loggedIn);
     await p.locator('#neteaseLink').fill('1'); await p.locator('#neteaseCheck').click(); await p.waitForFunction(() => !document.getElementById('neteaseImport').disabled);
     assert.equal(await p.locator('.netease-track[data-available="true"]').count(), 2); assert.match(await p.locator('#neteaseTracks').innerText(), /账号可播/);
-    await p.locator('#neteaseImport').click(); assert.equal(await p.locator('.pl-row').count(), 2);
-    assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('mikuFocusNetease_v1')).length), 1);
+    await p.locator('#neteaseImport').click(); await p.locator('#musicLibraryModal').waitFor({ state: 'visible' });
+    assert.equal(await p.locator('.pl-row').count(), 0); assert.equal(await p.locator('.library-song').count(), 2);
+    assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('mikuFocusMusicLibrary_v2')).playlists[0].tracks.length), 2);
+    await p.locator('#libraryPlayAll').click(); assert.equal(await p.locator('.pl-row').count(), 2);
     await p.bringToFront(); await p.locator('.pl-row').filter({ hasText: '账号歌曲' }).click();
     await p.waitForFunction(() => !document.getElementById('audio').paused && document.getElementById('audio').readyState >= 3).catch(async e => { console.log(await p.locator('#audio').evaluate(a => ({ paused: a.paused, ready: a.readyState, error: a.error?.code })), requests); throw e; });
     await p.locator('#btnImport').click(); await p.locator('#neteaseLogout').click(); await p.waitForFunction(() => !window.mikuNetease.loggedIn);
-    await tab.waitForFunction(() => !window.mikuNetease.loggedIn); assert.equal(await p.locator('.pl-row').count(), 1); assert.equal(await p.locator('#audio').evaluate(a => a.paused && !a.getAttribute('src')), true);
+    await tab.waitForFunction(() => !window.mikuNetease.loggedIn); assert.equal(await p.locator('.pl-row').count(), 2); assert.equal(await p.locator('#audio').evaluate(a => a.paused && !a.getAttribute('src')), true);
+    assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('mikuFocusMusicLibrary_v2')).playlists[0].tracks.length), 2);
     await p.locator('#neteaseLogin').click(); await p.waitForFunction(() => window.mikuNetease.loggedIn);
     await p.locator('#neteaseClose').click(); await p.locator('#roomLaunch').click(); await p.locator('#roomName').fill('账号房主'); await p.locator('#roomCreate').click(); await p.locator('#roomActive').waitFor({ state: 'visible' });
     const code = await p.locator('#roomActiveCode').innerText(); await p.locator('#roomImportNetease').click(); await p.locator('#neteaseCheck').click(); await p.waitForFunction(() => !document.getElementById('neteaseImport').disabled); await p.locator('#neteaseImport').click();

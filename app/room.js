@@ -81,7 +81,7 @@
     if (busy || room) return;
     const name = el("roomName").value.trim();
     if (!name) { message("先填一个昵称吧。", true); el("roomName").focus(); return; }
-    if (location.protocol === "file:") { message("请双击“一键分享学习房间.cmd”，生成链接后再创建房间。也可用“启动学习房间.cmd”本机试用。", true); return; }
+    if (location.protocol === "file:") { message("请双击“启动工具/一键分享学习房间.cmd”，生成链接后再创建房间。也可用“启动学习房间.cmd”本机试用。", true); return; }
     const code = el("roomCode").value.trim().toUpperCase();
     if (type === "join" && !/^[A-F0-9]{12}$/.test(code)) { message("请输入邀请里的 12 位房间码。", true); return; }
     message("正在连接学习房间…");
@@ -161,7 +161,7 @@
     document.body.classList.add("room-connected");
     if (entering) {
       el("audio").pause(); window.dispatchEvent(new Event("miku-room-change")); publishStudy();
-      message(publicUrl || !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) ? "房间已就绪，复制邀请给朋友即可加入。" : "房间已就绪。远程邀请请使用“一键分享学习房间.cmd”生成的 HTTPS 链接。");
+      message(publicUrl || !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) ? "房间已就绪，复制邀请给朋友即可加入。" : "房间已就绪。远程邀请请使用“启动工具/一键分享学习房间.cmd”生成的 HTTPS 链接。");
     }
     if (recovering) { message("已恢复房间，歌单和成员状态已同步。"); recovering = false; }
     renderMembers(); renderPlayer(); syncAudio();
@@ -247,7 +247,7 @@
   el("roomCopy").addEventListener("click", async () => {
     if (!room) return;
     const url = new URL(publicUrl || location.href); url.hash = `room=${room.code}`;
-    if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) { message("还没有远程链接。请双击“一键分享学习房间.cmd”，在自动打开的 HTTPS 页面创建房间后复制邀请。", true); return; }
+    if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) { message("还没有远程链接。请双击“启动工具/一键分享学习房间.cmd”，在自动打开的 HTTPS 页面创建房间后复制邀请。", true); return; }
     try { await navigator.clipboard.writeText(url.href); message("邀请链接已复制，朋友打开后填昵称即可加入。"); }
     catch {
       // HTTP inside a private VPN may not expose navigator.clipboard.
