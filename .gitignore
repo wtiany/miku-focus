@@ -22,3 +22,19 @@ playwright-report/
 # Downloaded tunnel client and temporary share address
 .tools/
 .share-info.json
+
+# Local-only documents and imported backgrounds
+/docs/交接文档.md
+/docs/设计文档.md
+/docs/Radmin联机说明.md
+/启动工具/*Radmin*.cmd
+/app/tools/radmin.cjs
+/app/assets/images/custom-*
+
+# Historical local-only paths
+/交接文档.md
+/设计文档.md
+/Radmin联机说明.md
+/*Radmin*.cmd
+/tools/radmin.cjs
+/assets/images/custom-*

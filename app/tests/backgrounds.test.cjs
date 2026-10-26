@@ -20,6 +20,7 @@ test("background API only accepts local same-origin writes with its token, serve
  const root=fs.mkdtempSync(path.join(os.tmpdir(),"miku-background-http-")),app=createRoomServer({env:{},authStore:null,backgroundDirectory:root});
  await new Promise(r=>app.server.listen(0,"127.0.0.1",r));const origin=`http://127.0.0.1:${app.server.address().port}`;
  try{
+  const initial=await fetch(origin+"/app/assets/images/custom-backgrounds.js");assert.equal(initial.status,200);assert.equal(await initial.text(),"globalThis.MikuCustomBackgrounds = [];\n");
   const info=await(await fetch(origin+"/api/backgrounds")).json();assert.equal(info.canUpload,true);assert.ok(info.token);
   const post=(extra={})=>fetch(origin+"/api/backgrounds",{method:"POST",headers:{Origin:origin,"X-Background-Token":info.token,"X-File-Name":encodeURIComponent("我的背景.png"),...extra},body:png});
   assert.equal((await post({"X-Background-Token":"bad"})).status,403);

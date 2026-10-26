@@ -6,13 +6,13 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '../..');
-const launchers = ['启动学习房间.cmd', '启动工具/一键分享学习房间.cmd', '启动工具/一键Radmin联机.cmd'];
+const launchers = ['启动学习房间.cmd', '启动工具/一键分享学习房间.cmd'];
 
 test('root offline entry resolves every local stylesheet, script and wallpaper after reorganization', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.match(html, /<base href="app\/">/);
   for (const match of html.matchAll(/(?:src|href)="([^"?#]+)(?:\?[^"#]*)?"/g)) {
-    const relative = match[1]; if (relative === 'app/' || /^(?:https?:|data:|\/)/.test(relative)) continue;
+    const relative = match[1]; if (relative === 'assets/images/custom-backgrounds.js' || relative === 'app/' || /^(?:https?:|data:|\/)/.test(relative)) continue;
     assert.ok(fs.existsSync(path.join(root, 'app', relative)), relative);
   }
   const app = fs.readFileSync(path.join(root, 'app/app.js'), 'utf8');
@@ -46,7 +46,7 @@ test('all launchers enter app/ and dispatch the same command from an unrelated w
     fs.writeFileSync(probe, `require('node:fs').writeFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), openBrowser: process.env.MIKU_OPEN_BROWSER }));`);
     for (const command of ['node', 'npm']) fs.writeFileSync(path.join(temp, command + '.cmd'), `@echo off\r\n"${process.execPath}" "${probe}" ${command} %*\r\nexit /b 0\r\n`, 'ascii');
     const env = { ...process.env }; const pathKey = Object.keys(env).find(k => k.toLowerCase() === 'path') || 'Path'; env[pathKey] = temp + ';' + env[pathKey];
-    const expected = [['npm', 'start'], ['npm', 'run', 'share'], ['node', '--env-file-if-exists=.env', 'tools/radmin.cjs']];
+    const expected = [['npm', 'start'], ['npm', 'run', 'share']];
     for (const [i, name] of launchers.entries()) {
       const result = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"call "${path.join(root, name)}""`], { cwd: temp, env, input: '\r\n', encoding: 'utf8', timeout: 15000, windowsHide: true, windowsVerbatimArguments: true });
       assert.equal(result.status, 0, result.stderr || name);

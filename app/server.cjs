@@ -310,6 +310,10 @@ function createRoomServer(options = {}) {
     const relative = pathname.startsWith("/app/") ? pathname.slice(5) : pathname.slice(1);
     const asset = /^(?:assets\/images\/[a-zA-Z0-9_-]+\.(jpg|png|webp|gif)|assets\/videos\/[a-zA-Z0-9_-]+\.mp4)$/.test(relative);
     if (!PUBLIC.has(relative) && !asset) { res.writeHead(404).end(); return; }
+    if (relative === "assets/images/custom-backgrounds.js" && !(await fsp.stat(path.join(backgroundDirectory, "custom-backgrounds.js")).catch(() => null))) {
+      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff" });
+      res.end("globalThis.MikuCustomBackgrounds = [];\n"); return;
+    }
     const custom=relative==="assets/images/custom-backgrounds.js" || /^assets\/images\/custom-[a-f0-9]{64}\.(jpg|png|webp|gif)$/.test(relative);
     await serveFile(req, res, custom?path.join(backgroundDirectory,path.basename(relative)):path.join(ROOT, relative), MIME[path.extname(relative)] || "application/octet-stream");
   }

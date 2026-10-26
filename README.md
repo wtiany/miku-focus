@@ -10,7 +10,10 @@
 | 位置 | 内容 |
 |---|---|
 | `app/` | 程序代码、图片视频、依赖、配置、测试和工具，日常不用打开 |
+| `docs/` | 使用说明和多人房间说明 |
+| `启动工具/` | Cloudflare 临时公网分享入口 |
 
+需要 Cloudflare 临时链接时，用 [一键分享学习房间.cmd](启动工具/一键分享学习房间.cmd)。
 
 **请整体保留这个项目文件夹。** `index.html` 会加载 `app/` 内的文件，不要单独移动网页文件。整理保留了原网页入口路径和服务端口，浏览器内已有数据不需要迁移。
 
@@ -21,7 +24,7 @@
 
 点击左上角 **背景设置 → ＋ 添加背景图片**，可以多选 JPG、PNG、WebP、GIF（单张最多 20 MB）。添加后立即显示第一张，并开启自动轮播；相同图片不会重复添加。
 
-通过本机服务打开网页时，图片会复制到 `app/assets/images`，原文件保留；索引写入同目录的 `custom-backgrounds.js`，刷新、重启服务或直接打开 HTML 都能继续使用。图片属于项目素材，会随项目保存与分享。项目写入只能由服务电脑本机操作。
+通过本机服务打开网页时，图片会复制到 `app/assets/images`，原文件保留；索引写入同目录的 `custom-backgrounds.js`，刷新、重启服务或直接打开 HTML 都能继续使用。自选图片及索引仅在本机保存，已由 Git 忽略，不会随源码推送；手动分享整个文件夹时仍会包含它们。项目写入只能由服务电脑本机操作。
 
 直接双击 HTML 时，图片保存在当前浏览器的 IndexedDB，刷新后可恢复，但不会复制到项目文件夹；如需复制进项目，请使用 **启动学习房间.cmd**。远程 HTTPS 页面也只保存在当前浏览器。
 
@@ -57,3 +60,5 @@ npm --prefix app run test:remember
 npm --prefix app run test:backgrounds
 npm --prefix app run test:browser
 ```
+
+本机配置位于 `app/.env`（示例是 `app/.env.example`）。Docker 构建在根目录执行 `docker build -f app/Dockerfile -t miku-focus .`。
